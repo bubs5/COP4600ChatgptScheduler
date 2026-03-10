@@ -146,7 +146,7 @@ fn main() {
 
     /* ---------- CREATE OUTPUT FILE ---------- */
 
-    let output_name = format!("{}.out", filename);
+    let output_name = filename.trim_end_matches(".in").to_string() + ".out";
     let mut file = File::create(output_name).unwrap();
 
     /* ---------- HEADER ---------- */
@@ -238,4 +238,5 @@ fn round_robin(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleResult {
         stats: vec![],
         finish_time: 0,
     }
+
 }
