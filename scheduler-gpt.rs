@@ -156,7 +156,7 @@ fn main() {
 
     /* ---------- HEADER ---------- */
 
-    writeln!(file, "{} processes", processcount).unwrap();
+    writeln!(file, "{:>3} processes", processcount).unwrap();
 
     match use_alg {
 
@@ -409,11 +409,161 @@ fn first_in_first_out(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleR
 }
 
 fn shortest_job_first(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleResult {
+    let runfor = _control[1];
+
+    #[derive(Clone)]
+    struct ProcessTracker {
+        name: String,
+        arrival: i32,
+        burst: i32,
+        remaining: i32,
+        started: bool,
+        start_time: i32,
+        finish_time: i32,
+        finished: bool,
+        order: usize,
+    }
+
+    let mut trackers: Vec<ProcessTracker> = _processes
+        .iter()
+        .enumerate()
+        .map(|(i, p)| ProcessTracker {
+            name: p.name.clone(),
+            arrival: p.arrival,
+            burst: p.burst,
+            remaining: p.burst,
+            started: false,
+            start_time: 0,
+            finish_time: 0,
+            finished: false,
+            order: i,
+        })
+        .collect();
+
+    let mut events: Vec<Event> = Vec::new();
+    let mut running: Option<usize> = None;
+    let mut last_selected: Option<usize> = None;
+
+    for t in 0..runfor {
+        // 1. Log arrivals first
+        for p in trackers.iter() {
+            if p.arrival == t {
+                events.push(Event {
+                    time: t,
+                    message: format!("{} arrived", p.name),
+                });
+            }
+        }
+
+        // 2. If something finished at the end of the previous tick, log it now
+        if let Some(idx) = running {
+            if trackers[idx].remaining == 0 {
+                trackers[idx].finished = true;
+                trackers[idx].finish_time = t;
+                events.push(Event {
+                    time: t,
+                    message: format!("{} finished", trackers[idx].name),
+                });
+                running = None;
+                last_selected = None;
+            }
+        }
+
+        // 3. Pick the ready process with shortest remaining time
+        let mut best: Option<usize> = None;
+        for i in 0..trackers.len() {
+            if trackers[i].arrival <= t && !trackers[i].finished && trackers[i].remaining > 0 {
+                match best {
+                    None => best = Some(i),
+                    Some(bi) => {
+                        let better = trackers[i].remaining < trackers[bi].remaining
+                            || (trackers[i].remaining == trackers[bi].remaining
+                                && trackers[i].arrival < trackers[bi].arrival)
+                            || (trackers[i].remaining == trackers[bi].remaining
+                                && trackers[i].arrival == trackers[bi].arrival
+                                && trackers[i].order < trackers[bi].order);
+
+                        if better {
+                            best = Some(i);
+                        }
+                    }
+                }
+            }
+        }
+
+        running = best;
+
+        // 4. Run selected process or log Idle
+        if let Some(idx) = running {
+            if !trackers[idx].started {
+                trackers[idx].started = true;
+                trackers[idx].start_time = t;
+            }
+
+            if last_selected != Some(idx) {
+                events.push(Event {
+                    time: t,
+                    message: format!(
+                        "{} selected (burst {:>3})",
+                        trackers[idx].name,
+                        trackers[idx].remaining
+                    ),
+                });
+                last_selected = Some(idx);
+            }
+
+            trackers[idx].remaining -= 1;
+        } else {
+            events.push(Event {
+                time: t,
+                message: "Idle".to_string(),
+            });
+            last_selected = None;
+        }
+    }
+
+    // 5. Catch completion exactly at runfor
+    if let Some(idx) = running {
+        if trackers[idx].remaining == 0 {
+            trackers[idx].finished = true;
+            trackers[idx].finish_time = runfor;
+            events.push(Event {
+                time: runfor,
+                message: format!("{} finished", trackers[idx].name),
+            });
+        }
+    }
+
+    // 6. Build stats in original input order
+    let mut stats: Vec<ProcessStats> = Vec::new();
+    for p in trackers.iter() {
+        if p.finished {
+            let turnaround = p.finish_time - p.arrival;
+            let wait = turnaround - p.burst;
+            let response = p.start_time - p.arrival;
+
+            stats.push(ProcessStats {
+                name: p.name.clone(),
+                wait,
+                turnaround,
+                response,
+            });
+        } else {
+            // Current output code doesn't support "did not finish",
+            // so use sentinel values for unfinished processes.
+            stats.push(ProcessStats {
+                name: p.name.clone(),
+                wait: -1,
+                turnaround: -1,
+                response: if p.started { p.start_time - p.arrival } else { -1 },
+            });
+        }
+    }
 
     ScheduleResult {
-        events: vec![],
-        stats: vec![],
-        finish_time: 0,
+        events,
+        stats,
+        finish_time: runfor,
     }
 }
 
