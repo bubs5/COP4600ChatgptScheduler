@@ -40,12 +40,16 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 2 {
-        eprintln!("Error: input file required");
+    // Check for flags and filename
+    let has_graph = args.iter().any(|arg| arg == "--graph");
+    let filename = args.iter().find(|arg| arg.ends_with(".in"));
+
+    if filename.is_none() {
+        eprintln!("Usage: scheduler-gpt <input file> [--graph]");
         process::exit(1);
     }
 
-    let filename = &args[1];
+    let filename = filename.unwrap();
 
     let contents = match read_to_string(filename) {
         Ok(c) => c,
@@ -176,7 +180,7 @@ fn main() {
 
     /* ---------- EVENT LOG ---------- */
 
-    for event in result.events {
+    for event in &result.events {
 
         writeln!(
             file,
@@ -198,7 +202,7 @@ fn main() {
 
     /* ---------- PROCESS STATS ---------- */
 
-    for stat in result.stats {
+    for stat in &result.stats {
 
         writeln!(
             file,
@@ -209,7 +213,77 @@ fn main() {
             stat.response
         ).unwrap();
     }
+
+    // After calling your scheduler and getting 'result':
+    if has_graph {
+        print_htop_graph(&result, &processes, runfor);
+    }
 }
+
+fn print_htop_graph(result: &ScheduleResult, processes: &Vec<Process>, run_for: i32) {
+    // 1. Header Information
+    println!("\x1b[1;37m  Tasks:\x1b[0m \x1b[1;32m{} total\x1b[0m", processes.len());
+    println!("\x1b[1;37m  Finish Time:\x1b[0m \x1b[1;34m{}\x1b[0m", result.finish_time);
+
+    // 2. CPU Timeline Bar (The htop "Memory/CPU" style)
+    print!("\x1b[1;37m  CPU \x1b[0m[");
+    
+    let mut timeline = vec!["\x1b[1;30m.\x1b[0m".to_string(); run_for as usize];
+    let colors = ["\x1b[42;30m", "\x1b[44;37m", "\x1b[45;37m", "\x1b[43;30m", "\x1b[46;30m"];
+    
+    use std::collections::HashMap;
+    let mut color_map = HashMap::new();
+    for (i, p) in processes.iter().enumerate() {
+        color_map.insert(p.name.clone(), colors[i % colors.len()]);
+    }
+
+    let mut current_proc: Option<String> = None;
+    for t in 0..run_for {
+        for event in &result.events {
+            if event.time == t {
+                if event.message.contains("selected") {
+                    current_proc = Some(event.message.split_whitespace().next().unwrap().to_string());
+                } else if event.message.contains("finished") || event.message == "Idle" {
+                    current_proc = None;
+                }
+            }
+        }
+        if let Some(ref name) = current_proc {
+            let color = color_map.get(name).unwrap_or(&"\x1b[47;30m");
+            timeline[t as usize] = format!("{}{}{}", color, name.chars().next().unwrap(), "\x1b[0m");
+        }
+    }
+
+    for slot in timeline { print!("{}", slot); }
+    println!("] \x1b[1;32m100.0%\x1b[0m");
+
+    // 3. Process Table (htop "Process List" style)
+    println!("\n\x1b[7;37m  NAME      WAIT   TURNAROUND   RESPONSE   BURST \x1b[0m");
+    
+    for (i, stat) in result.stats.iter().enumerate() {
+        let p_info = &processes[i];
+        let color_code = color_map.get(&stat.name).unwrap_or(&"\x1b[0m");
+        
+        // Print each row with slight indentation and aligned columns
+        println!(
+            "  {:<8}  {:>4}   {:>10}   {:>8}   {:>5}",
+            format!("{}{} \x1b[0m", color_code, stat.name),
+            stat.wait,
+            stat.turnaround,
+            stat.response,
+            p_info.burst
+        );
+    }
+
+    // 4. Footer Message for Unfinished Processes
+    for event in &result.events {
+        if event.message.contains("did not finish") {
+            println!("\x1b[1;31m  ! {}\x1b[0m", event.message);
+        }
+    }
+    println!();
+}
+
 
 /* ---------------- SCHEDULING FUNCTIONS ---------------- */
 /* TO BE ADDED */
