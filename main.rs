@@ -211,7 +211,7 @@ fn main() {
 }
 
 /* ---------------- SCHEDULING FUNCTIONS ---------------- */
-/* TO BE IMPLEMENTED */
+/* TO BE ADDED */
 
 fn first_in_first_out(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleResult {
 
@@ -240,4 +240,5 @@ fn round_robin(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleResult {
     }
 
 }
+
 
