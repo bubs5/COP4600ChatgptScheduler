@@ -138,6 +138,7 @@ fn main() {
         0 => first_in_first_out(control_matrix, &processes),
         1 => shortest_job_first(control_matrix, &processes),
         2 => round_robin(control_matrix, &processes),
+        3 => linux_cfs(control_matrix, &processes),
         _ => {
             eprintln!("Error: invalid algorithm");
             process::exit(1);
@@ -324,7 +325,8 @@ fn first_in_first_out(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleR
                 response,
             });
         }
-      
+    }
+
     ScheduleResult {
         events: vec![],
         stats: vec![],
@@ -455,3 +457,116 @@ fn round_robin(control: [i32; 4], processes: &Vec<Process>) -> ScheduleResult {
 }
 
 
+fn linux_cfs(control: [i32; 4], processes: &Vec<Process>) -> ScheduleResult {
+    let run_for = control[1];
+    let mut events = Vec::new();
+    let mut stats = Vec::new();
+
+    // CFS specific data
+    let mut vruntime = vec![0.0; processes.len()];
+    let mut remaining_burst = processes.iter().map(|p| p.burst).collect::<Vec<_>>();
+    let mut finished_time = vec![-1; processes.len()];
+    let mut response_times = vec![-1; processes.len()];
+    let mut wait_times = vec![0; processes.len()];
+    
+    let mut ready_indices: Vec<usize> = Vec::new();
+    let mut current_proc_idx: Option<usize> = None;
+
+    for t in 0..run_for {
+        // 1. Handle Arrivals
+        for i in 0..processes.len() {
+            if processes[i].arrival == t {
+                events.push(Event {
+                    time: t,
+                    message: format!("{} arrived", processes[i].name),
+                });
+                ready_indices.push(i);
+                
+                // New processes start with the current minimum vruntime to be fair
+                let min_vruntime = vruntime.iter().cloned().fold(f64::INFINITY, f64::min);
+                vruntime[i] = if min_vruntime.is_infinite() { 0.0 } else { min_vruntime };
+            }
+        }
+
+        // 2. Check if current process is finished
+        if let Some(idx) = current_proc_idx {
+            if remaining_burst[idx] == 0 {
+                events.push(Event {
+                    time: t,
+                    message: format!("{} finished", processes[idx].name),
+                });
+                finished_time[idx] = t;
+                current_proc_idx = None;
+            }
+        }
+
+        // 3. Selection: CFS always picks the lowest vruntime
+        // In real Linux, this is a Red-Black Tree. Here, we'll search the ready list.
+        if !ready_indices.is_empty() {
+            // Find process in ready_indices with the smallest vruntime
+            let best_ready_pos = ready_indices.iter()
+                .enumerate()
+                .min_by(|(_, &a), (_, &b)| vruntime[a].partial_cmp(&vruntime[b]).unwrap())
+                .map(|(i, _)| i)
+                .unwrap();
+
+            let next_idx = ready_indices[best_ready_pos];
+
+            // Preemption logic: If a different process has lower vruntime than current
+            if let Some(curr_idx) = current_proc_idx {
+                if vruntime[next_idx] < vruntime[curr_idx] {
+                    ready_indices.push(curr_idx);
+                    current_proc_idx = None; // Trigger re-selection
+                }
+            }
+
+            if current_proc_idx.is_none() {
+                current_proc_idx = Some(ready_indices.remove(best_ready_pos));
+                let idx = current_proc_idx.unwrap();
+                
+                if response_times[idx] == -1 {
+                    response_times[idx] = t - processes[idx].arrival;
+                }
+
+                events.push(Event {
+                    time: t,
+                    message: format!("{} selected (burst {}, vruntime {:.2})", 
+                                     processes[idx].name, remaining_burst[idx], vruntime[idx]),
+                });
+            }
+        }
+
+        // 4. Tick Logic
+        if let Some(idx) = current_proc_idx {
+            remaining_burst[idx] -= 1;
+            // vruntime += (actual_time / weight). We'll assume weight = 1 for simplicity.
+            vruntime[idx] += 1.0; 
+        } else {
+            events.push(Event { time: t, message: "Idle".to_string() });
+        }
+
+        // Update wait times for others
+        for &idx in &ready_indices {
+            wait_times[idx] += 1;
+        }
+    }
+
+    // Finalize Stats (same logic as RR)
+    for i in 0..processes.len() {
+        let mut turnaround = 0;
+        if finished_time[i] != -1 {
+            turnaround = finished_time[i] - processes[i].arrival;
+        } else {
+            events.push(Event { time: run_for, message: format!("{} did not finish", processes[i].name) });
+        }
+
+        stats.push(ProcessStats {
+            name: processes[i].name.clone(),
+            wait: wait_times[i],
+            turnaround,
+            response: response_times[i],
+        });
+    }
+
+    ScheduleResult { events, stats, finish_time: run_for }
+}
