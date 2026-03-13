@@ -244,7 +244,7 @@ fn first_in_first_out(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleR
     let mut events: Vec<Event> = Vec::new();
     let mut ready_queue: Vec<usize> = Vec::new();
     let mut running: Option<usize> = None;
-
+    
     for t in 0..runfor {
         // 1. Check arrivals: Any process arriving at tick 't' is added to the ready queue.
         for (i, p) in trackers.iter().enumerate() {
@@ -324,12 +324,11 @@ fn first_in_first_out(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleR
                 response,
             });
         }
-    }
-
+      
     ScheduleResult {
-        events,
-        stats,
-        finish_time: runfor,
+        events: vec![],
+        stats: vec![],
+        finish_time: 0,
     }
 }
 
@@ -342,14 +341,117 @@ fn shortest_job_first(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleR
     }
 }
 
-fn round_robin(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleResult {
 
-    ScheduleResult {
-        events: vec![],
-        stats: vec![],
-        finish_time: 0,
+fn round_robin(control: [i32; 4], processes: &Vec<Process>) -> ScheduleResult {
+    let _process_count = control[0];
+    let run_for = control[1];
+    let quantum = control[3];
+
+    let mut events = Vec::new();
+    let mut stats = Vec::new();
+    
+    // Tracking structures
+    let mut remaining_burst: Vec<i32> = processes.iter().map(|p| p.burst).collect();
+    let mut wait_times = vec![0; processes.len()];
+    let mut response_times = vec![-1; processes.len()];
+    let mut finished_time = vec![-1; processes.len()];
+    
+    let mut ready_queue: Vec<usize> = Vec::new();
+    let mut current_proc_idx: Option<usize> = None;
+    let mut current_quantum_left = 0;
+
+    for t in 0..run_for {
+        // 1. Handle Arrivals: Add arriving processes to the ready queue
+        for i in 0..processes.len() {
+            if processes[i].arrival == t {
+                events.push(Event {
+                    time: t,
+                    message: format!("{} arrived", processes[i].name),
+                });
+                ready_queue.push(i);
+            }
+        }
+        // 2. Manage Execution and Preemption
+        if let Some(idx) = current_proc_idx {
+            // If process finished in the previous tick
+            if remaining_burst[idx] == 0 {
+                events.push(Event {
+                    time: t,
+                    message: format!("{} finished", processes[idx].name),
+                });
+                finished_time[idx] = t;
+                current_proc_idx = None;
+            } 
+            // If quantum expired, preempt and move to back of queue
+            else if current_quantum_left == 0 {
+                ready_queue.push(idx);
+                current_proc_idx = None;
+            }
+        }
+
+        // 3. Selection: If CPU is idle, pick the next process from the queue
+        if current_proc_idx.is_none() && !ready_queue.is_empty() {
+            let next_idx = ready_queue.remove(0);
+            current_proc_idx = Some(next_idx);
+            current_quantum_left = quantum;
+
+            // Record response time on the first selection
+            if response_times[next_idx] == -1 {
+                response_times[next_idx] = t - processes[next_idx].arrival;
+            }
+
+            events.push(Event {
+                time: t,
+                message: format!("{} selected (burst {})", processes[next_idx].name, remaining_burst[next_idx]),
+            });
+        }
+
+        // 4. Tick Logic: Update remaining burst or log Idle
+        if let Some(idx) = current_proc_idx {
+            remaining_burst[idx] -= 1;
+            current_quantum_left -= 1;
+        } else {
+            events.push(Event {
+                time: t,
+                message: "Idle".to_string(),
+            });
+        }
+
+        // Update wait times for all processes sitting in the ready queue
+        for &idx in &ready_queue {
+            wait_times[idx] += 1;
+        }
     }
 
+    // Finalize Metrics and Check for Unfinished Processes
+    for i in 0..processes.len() {
+        let mut turnaround = 0;
+        let mut wait = wait_times[i];
+
+        if finished_time[i] != -1 {
+            turnaround = finished_time[i] - processes[i].arrival;
+        } else {
+            // Requirement: List processes that did not complete within 'runfor'
+            events.push(Event {
+                time: run_for,
+                message: format!("{} did not finish", processes[i].name),
+            });
+            // Adjust wait time if it never finished? Usually kept as accrued wait.
+        }
+
+        stats.push(ProcessStats {
+            name: processes[i].name.clone(),
+            wait,
+            turnaround,
+            response: response_times[i],
+        });
+    }
+
+    ScheduleResult {
+        events,
+        stats,
+        finish_time: run_for,
+    }
 }
 
 
