@@ -402,9 +402,9 @@ fn first_in_first_out(_control: [i32;4], _processes: &Vec<Process>) -> ScheduleR
     }
 
     ScheduleResult {
-        events: vec![],
-        stats: vec![],
-        finish_time: 0,
+        events,
+        stats,
+        finish_time: runfor,
     }
 }
 
