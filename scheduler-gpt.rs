@@ -61,10 +61,10 @@ fn main() {
 
     /* ---------- CONTROL MATRIX ---------- */
 
-    let mut processcount: i32 = 0;
-    let mut runfor: i32 = 0;
-    let mut use_alg: i32 = -1;
-    let mut quantum: i32 = 0;
+    let mut processcount: Option<i32> = None;
+    let mut runfor: Option<i32> = None;
+    let mut use_alg: Option<i32> = None;
+    let mut quantum: Option<i32> = None;
 
     /* ---------- PROCESS MATRIX ---------- */
 
@@ -83,15 +83,39 @@ fn main() {
         match tokens[0] {
 
             "processcount" => {
-                processcount = tokens[1].parse().unwrap();
+                if tokens.len() < 2 {
+                    eprintln!("Error: Missing parameter processcount");
+                    process::exit(1);
+                }
+                processcount = Some(match tokens[1].parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        eprintln!("Error: Bad data type for processcount");
+                        process::exit(1);
+                    }
+                });
             }
 
             "runfor" => {
-                runfor = tokens[1].parse().unwrap();
+                if tokens.len() < 2 {
+                    eprintln!("Error: Missing parameter runfor");
+                    process::exit(1);
+                }
+                runfor = Some(match tokens[1].parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        eprintln!("Error: Bad data type for runfor");
+                        process::exit(1);
+                    }
+                });
             }
 
             "use" => {
-                use_alg = match tokens[1] {
+                if tokens.len() < 2 {
+                    eprintln!("Error: Missing parameter use");
+                    process::exit(1);
+                }
+                use_alg = Some(match tokens[1] {
                     "fcfs" => 0,
                     "sjf" => 1,
                     "rr" => 2,
@@ -99,18 +123,43 @@ fn main() {
                         eprintln!("Error: invalid scheduling algorithm");
                         process::exit(1);
                     }
-                };
+                });
             }
 
             "quantum" => {
-                quantum = tokens[1].parse().unwrap();
+                if tokens.len() < 2 {
+                    eprintln!("Error: Missing parameter quantum");
+                    process::exit(1);
+                }
+                quantum = Some(match tokens[1].parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        eprintln!("Error: Bad data type for quantum");
+                        process::exit(1);
+                    }
+                });
             }
 
             "process" => {
-
+                if tokens.len() < 7 {
+                    eprintln!("Error: Missing parameter in process definition");
+                    process::exit(1);
+                }
                 let name = tokens[2].to_string();
-                let arrival: i32 = tokens[4].parse().unwrap();
-                let burst: i32 = tokens[6].parse().unwrap();
+                let arrival: i32 = match tokens[4].parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        eprintln!("Error: Bad data type for arrival");
+                        process::exit(1);
+                    }
+                };
+                let burst: i32 = match tokens[6].parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        eprintln!("Error: Bad data type for burst");
+                        process::exit(1);
+                    }
+                };
 
                 processes.push(Process {
                     name,
@@ -125,14 +174,34 @@ fn main() {
         }
     }
 
+    /* ---------- MISSING PARAMETER VALIDATION ---------- */
+
+    if processcount.is_none() {
+        eprintln!("Error: Missing parameter processcount");
+        process::exit(1);
+    }
+    if runfor.is_none() {
+        eprintln!("Error: Missing parameter runfor");
+        process::exit(1);
+    }
+    if use_alg.is_none() {
+        eprintln!("Error: Missing parameter use");
+        process::exit(1);
+    }
+
     /* ---------- RR QUANTUM VALIDATION ---------- */
 
-    if use_alg == 2 && quantum == 0 {
-        eprintln!("Error: Round Robin requires a quantum");
+    if use_alg == Some(2) && quantum.is_none() {
+        eprintln!("Error: Missing quantum parameter when use is rr");
         process::exit(1);
     }
 
     /* ---------- CONTROL MATRIX ---------- */
+
+    let processcount = processcount.unwrap();
+    let runfor = runfor.unwrap();
+    let use_alg = use_alg.unwrap();
+    let quantum = quantum.unwrap_or(0);
 
     let control_matrix = [processcount, runfor, use_alg, quantum];
 
