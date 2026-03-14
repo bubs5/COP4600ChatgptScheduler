@@ -1,3 +1,9 @@
+/*
+Brandon Saavedra
+Caleb Berent
+Carson Prewitt
+Isaac Rucker
+*/
 use std::env;
 use std::fs::{read_to_string, File};
 use std::io::Write;
